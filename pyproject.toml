@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice_rag_agents"
+version = "0.0.1"
+description = "Modular, LangGraph-orchestrated, local-first voice-to-answer RAG product."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+# Real provider/runtime deps are added per-wave by build sub-agents.
+graph = ["langgraph>=0.2", "langchain-core>=0.3"]
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
+milvus = ["pymilvus>=2.4"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+voice-rag = "voice_rag_agents.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "unit: fast tests, no external services",
+    "graph: LangGraph path tests with mocks",
+    "integration: require Docker-backed services (Milvus/Ollama)",
+    "rag_quality: golden RAG evaluation tests",
+    "security: security/safety tests",
+    "performance: performance smoke tests",
+    "external: require a real external API key/endpoint",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
