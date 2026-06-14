@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install (dev + graph + api)
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev,graph,api]"
+
+      - name: Lint (ruff)
+        run: ruff check src tests evals
+
+      - name: Unit + graph tests
+        run: pytest -m "not integration and not external" --maxfail=1
+
+      - name: Security tests
+        run: pytest -m security
+
+      - name: RAG golden evaluation
+        run: pytest -m rag_quality
+
+      - name: Performance smoke
+        run: pytest -m performance
+
+  # Integration job is opt-in: it requires Docker-backed Milvus/Ollama, which the
+  # default hosted runner does not provision here. Kept as a manual gate so the
+  # pipeline documents how to run it without failing on missing services.
+  integration:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install -U pip
+          pip install -e ".[dev,graph,api,milvus]"
+      - run: docker compose up -d
+      - run: pytest -m integration
+      - run: docker compose down

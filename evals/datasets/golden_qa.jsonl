@@ -1,0 +1,8 @@
+{"id": "RAG-001", "query": "What risks were raised about third-party APIs?", "expected_facts": ["API rate limits may impact analytics"], "expected_chunk_substring": "API rate limits may impact analytics", "answerable": true, "filters": {}}
+{"id": "RAG-002", "query": "Who owns the API rate-limit mitigation?", "expected_facts": ["Bob"], "expected_chunk_substring": "Bob owns mitigation", "answerable": true, "filters": {}}
+{"id": "RAG-003", "query": "Which analytics tool was selected?", "expected_facts": ["Mixpanel"], "expected_chunk_substring": "Mixpanel was selected", "answerable": true, "filters": {}}
+{"id": "RAG-004", "query": "What is the company's parental leave policy?", "expected_facts": [], "expected_chunk_substring": null, "answerable": false, "filters": {}}
+{"id": "RAG-005", "query": "What are Project Orion risks?", "expected_facts": ["API rate limits", "third-party billing provider"], "expected_chunk_substring": "Risks and Blockers", "answerable": true, "filters": {"project": "Orion"}}
+{"id": "RAG-006", "query": "What was decided about release cadence and who set up Mixpanel?", "expected_facts": ["two-week release cadence", "Carol"], "expected_chunk_substring": null, "answerable": true, "filters": {}}
+{"id": "RAG-007", "query": "What action items came out of the sync?", "expected_facts": ["Bob", "Alice", "Carol"], "expected_chunk_substring": "Action Items", "answerable": true, "filters": {}}
+{"id": "RAG-008", "query": "What revenue did the project generate last quarter?", "expected_facts": [], "expected_chunk_substring": null, "answerable": false, "filters": {}}
