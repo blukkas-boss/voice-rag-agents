@@ -19,4 +19,5 @@ htmlcov/
 # data / artifacts
 data/
 run_artifacts/
+artifacts/
 *.log

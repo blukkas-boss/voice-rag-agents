@@ -45,6 +45,10 @@ correct chunk · cited answer · no-evidence fallback · basic API · core docs.
 | Date | Wave/Task | Sub-agent | Result | Gate |
 |---|---|---|---|---|
 | 2026-06-13 | W0 VRAG-A001 scaffold | exec shell (direct) | repo, package, Makefile, .env.example, import+CLI test | `make test` ✓ 2 passed |
+| 2026-06-13 | W1 interfaces/schemas/mocks | sub-agent | config, schemas, provider interfaces, deterministic mocks | tests ✓ |
+| 2026-06-13 | W2 graph skeletons | sub-agent | 5 graphs, node contracts, checkpointer, conditional routing, run artifacts | 117 tests ✓ |
+| 2026-06-14 | W3 real adapters | exec shell (direct; sub-agents hit rate-limit/idle-timeout/ctx-overflow) | doc loader, chunker, STT, embedding, LLM, Milvus, retrieval; graph nodes wired | 154 tests ✓, ruff ✓ |
+| 2026-06-14 | W4 API/UI/deploy/security/docs | exec shell (direct) | FastAPI service, CLI subcommands, provider factory (profile-aware), Docker Compose+Dockerfile, healthcheck, security module, docs (install/operations/extension/openwebui); fixed Wave-2 graph double-wiring + undeclared-state-key drops so ingest→query works in mock mode | 164 tests ✓, ruff ✓, compose valid |
 
 ## Non-negotiable guardrails (doc 10) — enforced at review
 

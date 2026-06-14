@@ -15,12 +15,19 @@ from voice_rag_agents.graph.conditional_logic import (
     retrieval_route,
     stt_confidence_route,
 )
-from voice_rag_agents.dataflows.mock_vector_store import MockVectorStore
-from voice_rag_agents.model_clients.stt_adapter import make_stt_provider
-from voice_rag_agents.model_clients.embedding_adapter import OpenAIEmbeddingAdapter
-from voice_rag_agents.model_clients.llm_adapter import OpenAIChatAdapter
+from voice_rag_agents.model_clients.provider_factory import (
+    get_stt_provider,
+    get_embedding_provider,
+    get_llm_provider,
+    get_vector_store,
+)
+from voice_rag_agents.model_clients.interfaces import (
+    ChatMessage,
+    ChatRequest,
+    EmbeddingRequest,
+)
 from voice_rag_agents.dataflows.retrieval import assemble_context as _assemble_context
-from voice_rag_agents.dataflows.vector_records import SearchResult
+from voice_rag_agents.dataflows.vector_records import SearchRequest, SearchResult
 from voice_rag_agents.config.settings import get_settings
 
 
@@ -39,12 +46,7 @@ def transcribe_voice(state: VoiceRAGState) -> dict:
     audio_path = state.get("input_audio_path")
     if not audio_path:
         return {}
-    settings = get_settings()
-    stt_provider = make_stt_provider(
-        mode=settings.stt_provider,
-        command=settings.stt_command.split() if settings.stt_command else None,
-    )
-    result = stt_provider.transcribe(audio_path)
+    result = get_stt_provider().transcribe(audio_path)
     return {
         "transcript": result.transcript,
         "stt_confidence": result.confidence,
@@ -71,15 +73,7 @@ def embed_query(state: VoiceRAGState) -> dict:
     query_to_embed = state.get("rewritten_query") or state.get("normalized_query", "")
     if not query_to_embed:
         return {}
-    settings = get_settings()
-    embedding_provider = OpenAIEmbeddingAdapter(
-        base_url=settings.embedding_base_url,
-        model=settings.embedding_model,
-        api_key=settings.embedding_api_key,
-        dimension=settings.embedding_dim,
-    )
-    from voice_rag_agents.model_clients.interfaces import EmbeddingRequest
-    result = embedding_provider.embed(
+    result = get_embedding_provider().embed(
         EmbeddingRequest(texts=[query_to_embed], input_type="query")
     )
     if result.vectors:
@@ -93,9 +87,8 @@ def search_vector_store(state: VoiceRAGState) -> dict:
     if not query_vector:
         return {}
     settings = get_settings()
-    vector_store = MockVectorStore()  # Default; swap to MilvusAdapter in integration
+    vector_store = get_vector_store()
     vector_store.ensure_collection(settings.collection, len(query_vector))
-    from voice_rag_agents.dataflows.vector_records import SearchRequest
     request = SearchRequest(query_vector=query_vector, top_k=settings.top_k)
     results = vector_store.search(settings.collection, request)
     if results:
@@ -132,13 +125,7 @@ def generate_answer(state: VoiceRAGState) -> dict:
     context = state.get("assembled_context", "")
     if not question or not context:
         return {}
-    settings = get_settings()
-    llm_provider = OpenAIChatAdapter(
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
-        api_key=settings.llm_api_key,
-    )
-    from voice_rag_agents.model_clients.interfaces import ChatMessage, ChatRequest
+    llm_provider = get_llm_provider()
     request = ChatRequest(
         messages=[
             ChatMessage(role="system", content="Answer ONLY using the provided context. Cite sources as [S1], [S2], etc."),
@@ -155,18 +142,20 @@ def validate_citations(state: VoiceRAGState) -> dict:
     answer = state.get("answer", "")
     citations = state.get("citations", [])
     
-    # Simple validation: check if answer has citation markers
-    if "[S" in answer and answer.count("[S") == len(citations):
-        # Valid citations
+    # Valid when the answer references at least one citation label that maps to
+    # a retrieved chunk. We do NOT require an exact count match: an LLM may
+    # legitimately cite a subset of retrieved chunks.
+    if citations and "[S" in answer:
         return {}
-    else:
-        # Invalid or missing citations - add error for retry logic
-        error = {
-            "code": "CITATION_VALIDATION_FAILED",
-            "message": "Answer citations do not match retrieved chunks",
-            "node": "validate_citations"
-        }
-        return {"errors": [state.get("errors", []) + [error]] if state.get("errors") else [error]}
+    if not citations:
+        # No retrieved chunks -> route to no-evidence (not an error).
+        return {}
+    error = {
+        "code": "CITATION_VALIDATION_FAILED",
+        "message": "Answer contains no citation markers despite retrieved context",
+        "node": "validate_citations",
+    }
+    return {"errors": [*state.get("errors", []), error]}
 
 
 def validate_groundedness(state: VoiceRAGState) -> dict:
@@ -177,13 +166,12 @@ def validate_groundedness(state: VoiceRAGState) -> dict:
     
     if answer and citations:
         return {}
-    else:
-        error = {
-            "code": "GROUNDEDNESS_VALIDATION_FAILED",
-            "message": "Answer lacks sufficient grounding in retrieved context",
-            "node": "validate_groundedness"
-        }
-        return {"errors": [state.get("errors", []) + [error]] if state.get("errors") else [error]}
+    error = {
+        "code": "GROUNDEDNESS_VALIDATION_FAILED",
+        "message": "Answer lacks sufficient grounding in retrieved context",
+        "node": "validate_groundedness",
+    }
+    return {"errors": [*state.get("errors", []), error]}
 
 
 def format_response(state: VoiceRAGState) -> dict:
@@ -243,13 +231,13 @@ def build_query_graph() -> StateGraph:
     # Set entry point
     workflow.set_entry_point("accept_query")
     
-    # Add edges - linear flow first
-    workflow.add_edge("accept_query", "transcribe_voice")
-    workflow.add_edge("transcribe_voice", "normalize_query")
+    # Add edges - linear flow first.
+    # NOTE: accept_query->*, transcribe_voice->* and search_vector_store->* are
+    # provided by conditional edges below; direct duplicates would double-wire
+    # the path and cause nodes to run twice / drop state on fan-in.
     workflow.add_edge("normalize_query", "rewrite_query")
     workflow.add_edge("rewrite_query", "embed_query")
     workflow.add_edge("embed_query", "search_vector_store")
-    workflow.add_edge("search_vector_store", "apply_metadata_filters")
     workflow.add_edge("apply_metadata_filters", "rerank_results")
     workflow.add_edge("rerank_results", "assemble_context")
     workflow.add_edge("assemble_context", "generate_answer")

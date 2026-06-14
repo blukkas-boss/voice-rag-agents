@@ -15,8 +15,10 @@ from voice_rag_agents.graph.conditional_logic import (
     ingestion_retry_route,
     parse_error_route,
 )
-from voice_rag_agents.model_clients.embedding_adapter import OpenAIEmbeddingAdapter
-from voice_rag_agents.dataflows.mock_vector_store import MockVectorStore
+from voice_rag_agents.model_clients.provider_factory import (
+    get_embedding_provider,
+    get_vector_store,
+)
 from voice_rag_agents.dataflows.vector_records import VectorRecord
 from voice_rag_agents.dataflows.retrieval import chunk_to_vector_records
 from voice_rag_agents.config.settings import get_settings
@@ -134,19 +136,13 @@ def embed_chunks(state: VoiceRAGState) -> dict:
     chunks = state.get("chunks", [])
     if not chunks or not any(c.get("text", "") for c in chunks):
         return {}
-    settings = get_settings()
-    embedding_provider = OpenAIEmbeddingAdapter(
-        base_url=settings.embedding_base_url,
-        model=settings.embedding_model,
-        api_key=settings.embedding_api_key,
-        dimension=settings.embedding_dim,
-    )
-    vector_records, embedding_records = chunk_to_vector_records(chunks, embedding_provider)
+    embedding_provider = get_embedding_provider()
+    _, embedding_records = chunk_to_vector_records(chunks, embedding_provider)
+    # NOTE: prepare_vector_records is the SOLE writer of `vector_records` to
+    # avoid two nodes writing the same state key in one run (langgraph drops
+    # conflicting concurrent writes without a reducer).
     if embedding_records:
-        out: dict = {"embeddings": embedding_records}
-        if vector_records:
-            out["vector_records"] = [vr.model_dump() for vr in vector_records]
-        return out
+        return {"embeddings": embedding_records}
     return {}
 
 
@@ -199,46 +195,70 @@ def prepare_vector_records(state: VoiceRAGState) -> dict:
     return {}
 
 
+def _rebuild_vector_records(state: VoiceRAGState) -> list[VectorRecord]:
+    """Get vector records from state, rebuilding from chunks+embeddings if the
+    `vector_records` key isn't populated in this node's state view.
+
+    Defensive: langgraph state-merge timing across the ingestion pipeline can
+    leave a node without an upstream key; rebuilding keeps upsert correct.
+    """
+    raw = state.get("vector_records", [])
+    if raw:
+        return [VectorRecord(**vr) for vr in raw]
+    chunks = state.get("chunks", [])
+    embeddings = state.get("embeddings", [])
+    records: list[VectorRecord] = []
+    for chunk, emb in zip(chunks, embeddings):
+        records.append(
+            VectorRecord(
+                id=f"vec-{chunk.get('chunk_id', 'unknown')}",
+                document_id=chunk.get("document_id", ""),
+                chunk_id=chunk.get("chunk_id", ""),
+                chunk_text=chunk.get("text", ""),
+                vector=emb.get("vector", []),
+                metadata=chunk.get("metadata", {}),
+            )
+        )
+    return records
+
+
 def ensure_collection(state: VoiceRAGState) -> dict:
     """Ensure vector collection exists with correct dimension."""
-    vector_records = state.get("vector_records", [])
-    if vector_records:
-        # Get dimension from first vector
-        dimension = len(vector_records[0].get("vector", [])) if vector_records else 2048
-        collection_name = "voice_rag_chunks"  # From config
-        
-        # In integration profile, swap to MilvusAdapter(settings.milvus_uri)
-        MockVectorStore().ensure_collection(collection_name, dimension)
-        return {"collection_ensured": True, "collection_name": collection_name, "dimension": dimension}
+    records = _rebuild_vector_records(state)
+    if not records:
+        return {}
+    dimension = len(records[0].vector) if records[0].vector else 2048
+    collection_name = get_settings().collection
+    get_vector_store().ensure_collection(collection_name, dimension)
+    # Don't return undeclared state keys (langgraph drops them). upsert_records
+    # re-derives the collection name from settings.
     return {}
 
 
 def upsert_records(state: VoiceRAGState) -> dict:
     """Upsert vector records to vector store."""
-    vector_records = state.get("vector_records", [])
-    if vector_records:
-        # Convert dicts back to VectorRecord objects
-        records = [VectorRecord(**vr) for vr in vector_records]
-        
-        # In integration profile, swap to MilvusAdapter(settings.milvus_uri)
-        store = MockVectorStore()
-        collection_name = state.get("collection_name", "voice_rag_chunks")
-        dimension = len(records[0].vector) if records and records[0].vector else 2048
-        store.ensure_collection(collection_name, dimension)
-        result = store.upsert(collection_name, records)
-        return {
-            "upsert_result": result,
-            "vector_store_success": True
-        }
-    return {}
+    records = _rebuild_vector_records(state)
+    if not records:
+        return {}
+    store = get_vector_store()
+    collection_name = state.get("collection_name") or get_settings().collection
+    dimension = len(records[0].vector) if records[0].vector else 2048
+    store.ensure_collection(collection_name, dimension)
+    result = store.upsert(collection_name, records)
+    # Persist the upsert count inside the declared `ingestion_report` channel.
+    # Undeclared state keys are dropped by langgraph between supersteps, so we
+    # must use a key present in VoiceRAGState.
+    report = dict(state.get("ingestion_report", {}) or {})
+    report["records_upserted"] = result.get("upserted", 0)
+    report["vector_store_success"] = True
+    return {"ingestion_report": report}
 
 
 def verify_ingestion(state: VoiceRAGState) -> dict:
-    """Verify that ingestion was successful."""
-    upsert_result = state.get("upsert_result", {})
-    if upsert_result and upsert_result.get("upserted", 0) > 0:
-        return {"ingestion_verified": True, "verified_count": upsert_result.get("upserted")}
-    return {"ingestion_verified": False}
+    """Verify that ingestion was successful (reads declared ingestion_report)."""
+    report = dict(state.get("ingestion_report", {}) or {})
+    report["ingestion_verified"] = report.get("records_upserted", 0) > 0
+    return {"ingestion_report": report}
 
 
 def write_ingestion_report(state: VoiceRAGState) -> dict:
@@ -247,8 +267,9 @@ def write_ingestion_report(state: VoiceRAGState) -> dict:
     chunks = state.get("chunks", [])
     embeddings = state.get("embeddings", [])
     vector_records = state.get("vector_records", [])
-    upsert_result = state.get("upsert_result", {})
-    
+    prior = dict(state.get("ingestion_report", {}) or {})
+    records_upserted = prior.get("records_upserted", 0)
+
     report = {
         "run_id": state.get("run_id"),
         "timestamp": state.get("created_at"),
@@ -256,10 +277,10 @@ def write_ingestion_report(state: VoiceRAGState) -> dict:
         "chunks_created": len(chunks),
         "embeddings_generated": len(embeddings),
         "vector_records_prepared": len(vector_records),
-        "records_upserted": upsert_result.get("upserted", 0),
-        "status": "success" if upsert_result.get("upserted", 0) > 0 else "failed"
+        "records_upserted": records_upserted,
+        "ingestion_verified": prior.get("ingestion_verified", False),
+        "status": "success" if records_upserted > 0 else "failed",
     }
-    
     return {"ingestion_report": report}
 
 
@@ -336,8 +357,9 @@ def build_ingestion_graph() -> StateGraph:
     workflow.add_edge("normalize_documents", "chunk_documents")
     workflow.add_edge("chunk_documents", "extract_metadata")
     workflow.add_edge("extract_metadata", "embed_chunks")
-    workflow.add_edge("embed_chunks", "validate_embeddings")
-    workflow.add_edge("validate_embeddings", "prepare_vector_records")
+    # NOTE: embed_chunks -> validate_embeddings and validate_embeddings ->
+    # prepare_vector_records are handled by the conditional edges below; adding
+    # direct edges too would double-wire the path and drop state on fan-in.
     workflow.add_edge("prepare_vector_records", "ensure_collection")
     workflow.add_edge("ensure_collection", "upsert_records")
     workflow.add_edge("upsert_records", "verify_ingestion")

@@ -101,18 +101,28 @@ def chunk_to_vector_records(
     embeddings: list[dict] = []
 
     for i, (chunk, vec) in enumerate(zip(chunks, emb_result.vectors)):
-        chunk_id = _make_chunk_id(chunk["text"], chunk["source"], chunk["chunk_index"])
-        doc_id = _make_doc_id(chunk["source"])
+        # Support both the loader/chunker schema (text/source/chunk_index) and
+        # the ingestion-graph chunk schema (text/document_id/chunk_id/sequence).
+        text = chunk.get("text", "")
+        source = (
+            chunk.get("source")
+            or chunk.get("metadata", {}).get("source_file")
+            or chunk.get("document_id")
+            or "unknown"
+        )
+        index = chunk.get("chunk_index", chunk.get("sequence", i))
+        chunk_id = chunk.get("chunk_id") or _make_chunk_id(text, source, index)
+        doc_id = chunk.get("document_id") or _make_doc_id(source)
         records.append(
             VectorRecord(
                 id=f"vec-{chunk_id}",
                 document_id=doc_id,
                 chunk_id=chunk_id,
-                chunk_text=chunk["text"],
+                chunk_text=text,
                 vector=vec,
                 metadata={
-                    "source_file": chunk["source"],
-                    "chunk_index": chunk["chunk_index"],
+                    "source_file": source,
+                    "chunk_index": index,
                     **chunk.get("metadata", {}),
                 },
             )
