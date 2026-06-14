@@ -16,8 +16,12 @@ def test_milvus_import_works() -> None:
 
 
 def test_milvus_health_without_connection() -> None:
-    """Health check returns error status when Milvus is not running."""
-    adapter = MilvusAdapter(uri="http://localhost:19530", timeout=2.0)
+    """Health check returns error status when Milvus is unreachable.
+
+    Uses a definitely-dead port so the test is valid whether or not a real
+    Milvus is running on the default 19530 (e.g. the Docker stack).
+    """
+    adapter = MilvusAdapter(uri="http://127.0.0.1:6", timeout=2.0)
     result = adapter.health()
     assert result["status"] == "error"
     assert "error" in result
@@ -35,6 +39,6 @@ def test_upsert_empty_records() -> None:
 
 def test_delete_by_document_id_returns_error_when_disconnected() -> None:
     """Delete returns error dict when Milvus is not reachable."""
-    adapter = MilvusAdapter(uri="http://localhost:19530", timeout=2.0)
+    adapter = MilvusAdapter(uri="http://127.0.0.1:6", timeout=2.0)
     result = adapter.delete_by_document_id("test", "doc-1")
     assert "error" in result

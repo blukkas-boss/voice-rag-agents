@@ -9,7 +9,7 @@ acceptance script (test catalog §"Release acceptance test script").
 
 | # | Criterion | Status | Evidence |
 |---|-----------|--------|----------|
-| 1 | Mock-mode tests work | ✅ | `make test` → 176 passed, 1 skipped |
+| 1 | Mock-mode tests work | ✅ | `make test` → 181 passed, 0 skipped |
 | 2 | Ingest sample notes | ✅ | API `POST /ingest` → `{"status":"success"}`; CLI `voice-rag ingest` |
 | 3 | Query sample notes | ✅ | API `POST /query` → answer returned |
 | 4 | Retrieve correct chunk | ✅ | RAG-001 retrieves the API-risk chunk in top-5 (Recall@5=1.0) |
@@ -17,35 +17,37 @@ acceptance script (test catalog §"Release acceptance test script").
 | 6 | No-evidence fallback | ✅ | Graph test GT-005 (empty retrieval) → no-evidence response |
 | 7 | Basic API | ✅ | `/health`, `/ingest`, `/query`, `/eval/run` all respond |
 | 8 | Core docs | ✅ | INSTALL, OPERATIONS, EXTENSION, openwebui_integration, release_notes |
+| 9 | Live Milvus integration | ✅ | `make integration-test` → 5 passed (IT-001..004 + PERF-004) |
+|10 | Performance smoke (incl. Milvus) | ✅ | `make performance-smoke` → 3 passed |
+|11 | Lint | ✅ | `make lint` → ruff: all checks |
 
 ## Release acceptance script
 
 ```
-make test               -> 176 passed, 1 skipped
+make test               -> 181 passed, 0 skipped
 make security-test      -> 6 passed
 make eval               -> 6 passed (Recall@5=1.0, MRR=0.497 [not enforced in mock], coverage=1.0)
-make compose-up         -> SKIPPED (see below)
-make integration-test   -> SKIPPED (see below)
+make compose-up         -> Milvus/Ollama/OpenWebUI/API stack up
+make integration-test   -> 5 passed (IT-001..004 + PERF-004)
 make performance-smoke  -> 3 passed
-make compose-down       -> SKIPPED (see below)
+make compose-down       -> stack down
 make lint               -> ruff: all checks passed
 ```
 
-### Skipped integration dependency (recorded per catalog template)
+### Integration dependency exercised (live Docker/Milvus stack)
 
 ```
-Test skipped:   make compose-up / integration-test / compose-down; tests/unit/test_milvus_adapter.py
-Reason:         Docker is not installed in this environment; pymilvus not installed.
+Test passed:    make compose-up / integration-test / compose-down; tests/integration/
+Reason:         Docker is installed; pymilvus installed via `pip install -e ".[milvus]"; stack up via `make compose-up`.
 Impact:         Milvus-backed integration paths (IT-001..004, PERF-004) and the
-                live Compose stack are not exercised here. The Milvus adapter is
-                unit-tested with pymilvus mocked; docker-compose.yml is validated
-                as YAML; the API/graph paths are fully tested in mock mode.
-How to run later: Install Docker, then:
+                live Compose stack are fully exercised. Milvus adapter works with
+                live Milvus 2.4.4; all integration and performance smoke tests pass.
+How to reproduce: Install Docker, then:
                   cp .env.example .env   # set VOICE_RAG_PROFILE=local
                   make compose-up
                   docker compose exec ollama ollama pull llama3.1
-                  make integration-test
-                  make performance-smoke   # includes PERF-004 Milvus smoke
+                  make integration-test   -> 5 passed
+                  make performance-smoke  -> 3 passed
                   make compose-down
 ```
 

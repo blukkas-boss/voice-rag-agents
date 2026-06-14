@@ -23,7 +23,6 @@ try:
         DataType,
         FieldSchema,
         MilvusClient,
-        utility,
     )
 
     _MILVUS_AVAILABLE = True
@@ -65,7 +64,10 @@ class MilvusAdapter:
 
     def ensure_collection(self, name: str, dimension: int) -> None:
         client = self._get_client()
-        if utility.has_collection(name):
+        # Use the MilvusClient (v2) API consistently. The ORM-style
+        # ``utility.has_collection`` requires a separate ``connections.connect``
+        # and raises ConnectionNotExistException when only a MilvusClient exists.
+        if client.has_collection(name):
             return
 
         fields = [
@@ -74,18 +76,28 @@ class MilvusAdapter:
             FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=64),
             FieldSchema(name="chunk_text", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=dimension),
-            FieldSchema(name="metadata_json", dtype=DataType.VARCHAR, max_length=4096),
+            # JSON field (not VARCHAR) so metadata keys are filterable via
+            # ``metadata_json["key"] == ...`` expressions.
+            FieldSchema(name="metadata_json", dtype=DataType.JSON),
         ]
         schema = CollectionSchema(fields=fields)
-        client.create_collection(collection_name=name, schema=schema)
-        # Create HNSW index for the vector field
+        # Build the vector index as part of collection creation so the
+        # collection is immediately loadable/searchable.
         index_params = client.prepare_index_params()
-        index_params.add_index(field_name="vector", index_type="HNSW", metric_type="COSINE", params={"M": 8, "efConstruction": 64})
-        client.create_index(collection_name=name, index_params=index_params)
+        index_params.add_index(
+            field_name="vector",
+            index_type="HNSW",
+            metric_type="COSINE",
+            params={"M": 8, "efConstruction": 64},
+        )
+        client.create_collection(
+            collection_name=name,
+            schema=schema,
+            index_params=index_params,
+        )
 
     def upsert(self, collection: str, records: list[VectorRecord]) -> dict:
         client = self._get_client()
-        import json as _json
 
         rows = []
         for rec in records:
@@ -96,13 +108,15 @@ class MilvusAdapter:
                     "chunk_id": rec.chunk_id,
                     "chunk_text": rec.chunk_text,
                     "vector": rec.vector,
-                    "metadata_json": _json.dumps(rec.metadata),
+                    # Stored as a Milvus JSON field; pass the dict directly.
+                    "metadata_json": rec.metadata or {},
                 }
             )
         if not rows:
             return {"upserted": 0}
         client.insert(collection_name=collection, data=rows)
-        client.flush([collection])
+        # MilvusClient.flush takes a single collection_name (str), not a list.
+        client.flush(collection)
         return {"upserted": len(rows)}
 
     def search(
@@ -111,9 +125,18 @@ class MilvusAdapter:
         import json as _json
 
         client = self._get_client()
-        output_fields = request.output_fields or [
-            "chunk_id", "chunk_text", "document_id", "metadata_json",
+        # The adapter owns the physical schema, so map logical field names from
+        # the (storage-agnostic) SearchRequest to physical Milvus columns. The
+        # interface uses ``metadata``; the column is ``metadata_json``.
+        _FIELD_MAP = {"metadata": "metadata_json"}
+        requested = request.output_fields or [
+            "chunk_id", "chunk_text", "document_id", "metadata",
         ]
+        output_fields = [_FIELD_MAP.get(f, f) for f in requested]
+        # Always ensure the columns we read below are fetched.
+        for required in ("id", "chunk_id", "chunk_text", "document_id", "metadata_json"):
+            if required not in output_fields:
+                output_fields.append(required)
         try:
             resp = client.search(
                 collection_name=collection,
@@ -129,12 +152,15 @@ class MilvusAdapter:
         hits = resp[0] if resp else []
         for hit in hits:
             entity = hit.get("entity", {})
-            md: dict = {}
-            raw = entity.get("metadata_json", "{}")
-            try:
-                md = _json.loads(raw) if isinstance(raw, str) else (raw or {})
-            except ValueError:
-                md = {}
+            raw = entity.get("metadata_json", {})
+            # JSON field comes back as a dict; tolerate a stringified value too.
+            if isinstance(raw, str):
+                try:
+                    md = _json.loads(raw)
+                except ValueError:
+                    md = {}
+            else:
+                md = raw or {}
             results.append(
                 SearchResult(
                     id=str(entity.get("id", "")),
@@ -148,8 +174,10 @@ class MilvusAdapter:
         return results
 
     def delete_by_document_id(self, collection: str, document_id: str) -> dict:
-        client = self._get_client()
         try:
+            # _get_client() can raise if Milvus is unreachable (the client
+            # connects eagerly), so acquire it inside the try.
+            client = self._get_client()
             result = client.delete(
                 collection_name=collection,
                 filter=f'document_id == "{document_id}"',

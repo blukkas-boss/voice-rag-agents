@@ -50,10 +50,12 @@ The 1 skip is the Milvus adapter test (pymilvus/Docker absent).
 
 ## Known limitations / risks
 
-- **Docker not available in this environment** → Milvus integration tests and
-  the live Compose stack are skipped. The Compose config is validated and the
-  adapter is unit-tested with `pymilvus` mocked. To run for real: install Docker,
-  `make compose-up`, then `make integration-test`.
+- **Docker availability**: Milvus integration tests and the live Compose stack
+  require Docker. When Docker is installed, these gates pass (`make integration-test`
+  and `make performance-smoke` include Milvus checks). In this session, Docker
+  was installed and the stack ran successfully, clearing this gate. For future
+  runs on hosts without Docker, install Docker and run `make compose-up` then
+  `make integration-test` to exercise the Milvus-backed paths.
 - **MRR threshold (≥0.70) is not enforced in mock mode.** The mock hash-embedding
   produces near-uniform similarity scores with no semantic ordering, so MRR over
   mock retrieval measures noise, not the system. Recall@5 (≥0.90) and citation
