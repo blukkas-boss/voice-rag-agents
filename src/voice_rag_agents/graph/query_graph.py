@@ -15,12 +15,13 @@ from voice_rag_agents.graph.conditional_logic import (
     retrieval_route,
     stt_confidence_route,
 )
-from voice_rag_agents.model_clients.mock_clients import (
-    MockSTTProvider,
-    MockEmbeddingProvider,
-    MockLLMProvider,
-)
 from voice_rag_agents.dataflows.mock_vector_store import MockVectorStore
+from voice_rag_agents.model_clients.stt_adapter import make_stt_provider
+from voice_rag_agents.model_clients.embedding_adapter import OpenAIEmbeddingAdapter
+from voice_rag_agents.model_clients.llm_adapter import OpenAIChatAdapter
+from voice_rag_agents.dataflows.retrieval import assemble_context as _assemble_context
+from voice_rag_agents.dataflows.vector_records import SearchResult
+from voice_rag_agents.config.settings import get_settings
 
 
 # ---------------------------------------------------------------------------
@@ -35,19 +36,19 @@ def accept_query(state: VoiceRAGState) -> dict:
 
 def transcribe_voice(state: VoiceRAGState) -> dict:
     """Transcribe voice input to text using STT provider."""
-    # In a real implementation, this would use the STT provider
-    # For the skeleton, we'll just return a mock transcript
     audio_path = state.get("input_audio_path")
-    if audio_path:
-        # Use mock STT provider
-        stt_provider = MockSTTProvider()
-        # In reality, we'd call stt_provider.transcribe(audio_path)
-        # For the skeleton, we'll simulate the result
-        return {
-            "transcript": "What risks were raised about third-party APIs?",
-            "stt_confidence": 0.95
-        }
-    return {}
+    if not audio_path:
+        return {}
+    settings = get_settings()
+    stt_provider = make_stt_provider(
+        mode=settings.stt_provider,
+        command=settings.stt_command.split() if settings.stt_command else None,
+    )
+    result = stt_provider.transcribe(audio_path)
+    return {
+        "transcript": result.transcript,
+        "stt_confidence": result.confidence,
+    }
 
 
 def normalize_query(state: VoiceRAGState) -> dict:
@@ -68,35 +69,37 @@ def rewrite_query(state: VoiceRAGState) -> dict:
 def embed_query(state: VoiceRAGState) -> dict:
     """Embed the query using embedding provider."""
     query_to_embed = state.get("rewritten_query") or state.get("normalized_query", "")
-    if query_to_embed:
-        # Use mock embedding provider
-        embedding_provider = MockEmbeddingProvider(dimension=2048)
-        # In reality, we'd call embedding_provider.embed()
-        # For the skeleton, we'll simulate a vector
-        fake_vector = [0.1] * 2048  # 2048-dim vector
-        return {"query_embedding": fake_vector}
+    if not query_to_embed:
+        return {}
+    settings = get_settings()
+    embedding_provider = OpenAIEmbeddingAdapter(
+        base_url=settings.embedding_base_url,
+        model=settings.embedding_model,
+        api_key=settings.embedding_api_key,
+        dimension=settings.embedding_dim,
+    )
+    from voice_rag_agents.model_clients.interfaces import EmbeddingRequest
+    result = embedding_provider.embed(
+        EmbeddingRequest(texts=[query_to_embed], input_type="query")
+    )
+    if result.vectors:
+        return {"query_embedding": result.vectors[0]}
     return {}
 
 
 def search_vector_store(state: VoiceRAGState) -> dict:
     """Search vector store for similar chunks."""
     query_vector = state.get("query_embedding")
-    if query_vector:
-        # Use mock vector store
-        vector_store = MockVectorStore()
-        # In reality, we'd create a SearchRequest and call vector_store.search()
-        # For the skeleton, we'll simulate some results
-        fake_results = [
-            {
-                "id": "vec-1",
-                "chunk_id": "c1",
-                "chunk_text": "API rate limits may impact analytics and cause failures.",
-                "score": 0.95,
-                "metadata": {"source_file": "meeting_notes.md", "section": "Risks"},
-                "document_id": "doc-1"
-            }
-        ]
-        return {"retrieval_results": fake_results}
+    if not query_vector:
+        return {}
+    settings = get_settings()
+    vector_store = MockVectorStore()  # Default; swap to MilvusAdapter in integration
+    vector_store.ensure_collection(settings.collection, len(query_vector))
+    from voice_rag_agents.dataflows.vector_records import SearchRequest
+    request = SearchRequest(query_vector=query_vector, top_k=settings.top_k)
+    results = vector_store.search(settings.collection, request)
+    if results:
+        return {"retrieval_results": [r.model_dump() for r in results]}
     return {}
 
 
@@ -113,34 +116,37 @@ def rerank_results(state: VoiceRAGState) -> dict:
 
 
 def assemble_context(state: VoiceRAGState) -> dict:
-    """Assemble context from retrieval results."""
-    results = state.get("retrieval_results", [])
-    if results:
-        # Simple context assembly: join chunk texts
-        context_parts = []
-        for i, result in enumerate(results):
-            label = f"S{i+1}"
-            text = result.get("chunk_text", "")
-            context_parts.append(f"[{label}] {text}")
-        context = "\n\n".join(context_parts)
-        return {"assembled_context": context}
-    return {}
+    """Assemble context from retrieval results with citations."""
+    raw = state.get("retrieval_results", [])
+    results = [SearchResult(**r) if isinstance(r, dict) else r for r in raw]
+    context, citations = _assemble_context(results)
+    out: dict = {"assembled_context": context}
+    if citations:
+        out["citations"] = [c.model_dump() for c in citations]
+    return out
 
 
 def generate_answer(state: VoiceRAGState) -> dict:
-    """Generate answer using LLM provider."""
+    """Generate answer using LLM provider grounded in assembled context."""
     question = state.get("input_text") or state.get("transcript", "")
     context = state.get("assembled_context", "")
-    
-    if question and context:
-        # Use mock LLM provider
-        llm_provider = MockLLMProvider(no_evidence=False)  # Generate cited answer
-        # In reality, we'd format a prompt and call llm_provider.chat()
-        # For the skeleton, we'll simulate a cited answer
-        return {
-            "answer": f"Based on the retrieved context: {question} [S1]",
-        }
-    return {}
+    if not question or not context:
+        return {}
+    settings = get_settings()
+    llm_provider = OpenAIChatAdapter(
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        api_key=settings.llm_api_key,
+    )
+    from voice_rag_agents.model_clients.interfaces import ChatMessage, ChatRequest
+    request = ChatRequest(
+        messages=[
+            ChatMessage(role="system", content="Answer ONLY using the provided context. Cite sources as [S1], [S2], etc."),
+            ChatMessage(role="user", content=f"Context:\n{context}\n\nQuestion: {question}"),
+        ]
+    )
+    result = llm_provider.chat(request)
+    return {"answer": result.content}
 
 
 def validate_citations(state: VoiceRAGState) -> dict:

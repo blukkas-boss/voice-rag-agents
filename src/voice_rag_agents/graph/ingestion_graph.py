@@ -15,9 +15,11 @@ from voice_rag_agents.graph.conditional_logic import (
     ingestion_retry_route,
     parse_error_route,
 )
-from voice_rag_agents.model_clients.mock_clients import MockEmbeddingProvider
+from voice_rag_agents.model_clients.embedding_adapter import OpenAIEmbeddingAdapter
 from voice_rag_agents.dataflows.mock_vector_store import MockVectorStore
 from voice_rag_agents.dataflows.vector_records import VectorRecord
+from voice_rag_agents.dataflows.retrieval import chunk_to_vector_records
+from voice_rag_agents.config.settings import get_settings
 
 
 # ---------------------------------------------------------------------------
@@ -130,28 +132,21 @@ def extract_metadata(state: VoiceRAGState) -> dict:
 def embed_chunks(state: VoiceRAGState) -> dict:
     """Embed chunks using embedding provider."""
     chunks = state.get("chunks", [])
-    if chunks:
-        # Use mock embedding provider
-        embedding_provider = MockEmbeddingProvider(dimension=2048)
-        texts = [chunk.get("text", "") for chunk in chunks]
-        
-        if texts and any(texts):  # Check if we have non-empty texts
-            # In reality, we'd call embedding_provider.embed()
-            # For the skeleton, we'll simulate embeddings
-            embeddings = []
-            for i, chunk in enumerate(chunks):
-                # Create a fake 2048-dimensional vector
-                fake_vector = [0.1 + (i * 0.001)] * 2048  # Slightly different vectors
-                embedding_record = {
-                    "chunk_id": chunk.get("chunk_id"),
-                    "document_id": chunk.get("document_id"),
-                    "vector": fake_vector,
-                    "model": "mock-embed",
-                    "dimension": 2048
-                }
-                embeddings.append(embedding_record)
-            
-            return {"embeddings": embeddings}
+    if not chunks or not any(c.get("text", "") for c in chunks):
+        return {}
+    settings = get_settings()
+    embedding_provider = OpenAIEmbeddingAdapter(
+        base_url=settings.embedding_base_url,
+        model=settings.embedding_model,
+        api_key=settings.embedding_api_key,
+        dimension=settings.embedding_dim,
+    )
+    vector_records, embedding_records = chunk_to_vector_records(chunks, embedding_provider)
+    if embedding_records:
+        out: dict = {"embeddings": embedding_records}
+        if vector_records:
+            out["vector_records"] = [vr.model_dump() for vr in vector_records]
+        return out
     return {}
 
 
@@ -212,10 +207,8 @@ def ensure_collection(state: VoiceRAGState) -> dict:
         dimension = len(vector_records[0].get("vector", [])) if vector_records else 2048
         collection_name = "voice_rag_chunks"  # From config
         
-        # Use mock vector store
-        vector_store = MockVectorStore()
-        # In reality, we'd call vector_store.ensure_collection(collection_name, dimension)
-        # For the skeleton, we'll just note that we ensured the collection
+        # In integration profile, swap to MilvusAdapter(settings.milvus_uri)
+        MockVectorStore().ensure_collection(collection_name, dimension)
         return {"collection_ensured": True, "collection_name": collection_name, "dimension": dimension}
     return {}
 
@@ -227,14 +220,14 @@ def upsert_records(state: VoiceRAGState) -> dict:
         # Convert dicts back to VectorRecord objects
         records = [VectorRecord(**vr) for vr in vector_records]
         
-        # Use mock vector store
-        vector_store = MockVectorStore()
-        collection_name = "voice_rag_chunks"
-        
-        # In reality, we'd call vector_store.upsert(collection_name, records)
-        # For the skeleton, we'll simulate the upsert result
+        # In integration profile, swap to MilvusAdapter(settings.milvus_uri)
+        store = MockVectorStore()
+        collection_name = state.get("collection_name", "voice_rag_chunks")
+        dimension = len(records[0].vector) if records and records[0].vector else 2048
+        store.ensure_collection(collection_name, dimension)
+        result = store.upsert(collection_name, records)
         return {
-            "upsert_result": {"upserted": len(records)},
+            "upsert_result": result,
             "vector_store_success": True
         }
     return {}

@@ -62,45 +62,17 @@ class TestSupervisorGraph:
 
     def test_supervisor_routes_to_query(self):
         """Test that supervisor routes query requests correctly."""
-        # This would require mocking the subgraphs, but for now we test the structure
-        state: VoiceRAGState = {
-            "request_type": "query",
-            "user_id": "test-user",
-            "session_id": "test-session",
-            "runtime_profile": "mock",
-            "input_text": "What are the risks?"
-        }
-        
-        # We won't actually run it due to complex dependencies, but we can verify
-        # the graph structure is correct
+        # Verify the graph structure is correct without running (complex deps)
         graph = build_supervisor_graph()
         assert graph is not None
 
     def test_supervisor_routes_to_ingest(self):
         """Test that supervisor routes ingestion requests correctly."""
-        state: VoiceRAGState = {
-            "request_type": "ingest",
-            "user_id": "test-user",
-            "session_id": "test-session",
-            "runtime_profile": "mock",
-            "input_documents": [
-                {
-                    "source_file": "test.md",
-                    "text": "Test content"
-                }
-            ]
-        }
-        
         graph = build_supervisor_graph()
         assert graph is not None
 
     def test_supervisor_unknown_request_type(self):
         """Test supervisor handling of unknown request type."""
-        state: VoiceRAGState = {
-            "request_type": "unknown_type",
-            "user_id": "test-user"
-        }
-        
         graph = build_supervisor_graph()
         # Should route to handle_error
         assert graph is not None

@@ -84,8 +84,7 @@ class TestRunArtifactStore:
         assert len(events) == 7
         
         # Check event types
-        event_types = [e["event_type"] for e in events]
-        expected_types = [
+        assert [e["event_type"] for e in events] == [
             "run_started",
             "node_started", 
             "node_completed",
