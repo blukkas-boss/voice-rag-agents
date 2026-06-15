@@ -17,10 +17,6 @@ services:
       VOICE_RAG_PROFILE: ${VOICE_RAG_PROFILE:-local}
       VOICE_RAG_MILVUS_URI: http://milvus-standalone:19530
       VOICE_RAG_LLM_BASE_URL: http://ollama:11434/v1
-      VOICE_RAG_EMBEDDING_BASE_URL: http://ollama:11434
-      VOICE_RAG_EMBEDDING_MODEL: nomic-embed-text
-      VOICE_RAG_EMBEDDING_API_KEY: ""
-      VOICE_RAG_EMBEDDING_DIM: "768"
       VOICE_RAG_API_HOST: 0.0.0.0
       VOICE_RAG_API_PORT: "8088"
     ports:

@@ -307,10 +307,10 @@ def build_query_graph() -> StateGraph:
 # ---------------------------------------------------------------------------
 
 
-def run_query_graph(initial_state: VoiceRAGState) -> VoiceRAGState:
+def run_query_graph(initial_state: VoiceRAGState, config: dict | None = None) -> VoiceRAGState:
     """Run the query graph with initial state and return final state."""
     graph = build_query_graph()
-    return graph.invoke(initial_state)
+    return graph.invoke(initial_state, config=config)
 
 
 if __name__ == "__main__":

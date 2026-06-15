@@ -158,7 +158,7 @@ def create_app():
             state["input_audio_path"] = req.audio_path
 
         try:
-            result = run_query_graph(state)
+            result = run_query_graph(state, config={"recursion_limit": 100000})
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"Query failed: {exc}")
 

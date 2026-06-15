@@ -149,7 +149,7 @@ def embed_chunks(state: VoiceRAGState) -> dict:
 def validate_embeddings(state: VoiceRAGState) -> dict:
     """Validate embeddings dimension and quality."""
     embeddings = state.get("embeddings", [])
-    expected_dim = 2048  # From config
+    expected_dim = get_settings().embedding_dim  # From config
     
     if embeddings:
         # Check dimensions
