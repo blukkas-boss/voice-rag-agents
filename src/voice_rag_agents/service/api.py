@@ -386,6 +386,9 @@ def create_app():
             ],
         }
 
+    # Open WebUI's OpenAI connector posts to {base_url}/chat/completions
+    # WITHOUT a /v1 prefix, so register both paths to the same handler.
+    @app.post("/chat/completions", response_model=OAIChatResponse)
     @app.post("/v1/chat/completions", response_model=OAIChatResponse)
     def chat_completions(req: OAIChatRequest) -> OAIChatResponse:
         """OpenAI-compatible chat completions that runs the full RAG pipeline.

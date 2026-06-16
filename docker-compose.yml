@@ -60,6 +60,7 @@ services:
     image: ghcr.io/open-webui/open-webui:main
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
+      OPENAI_API_BASE_URL: http://voice-rag-api:8088
       OPENAI_API_BASE_URLS: http://voice-rag-api:8088
       OPENAI_API_KEYS: ""
       ENABLE_OPENAI_API: "true"
