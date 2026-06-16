@@ -243,8 +243,8 @@ def create_app():
         # Inject our RAG model so Open WebUI discovers it alongside Ollama models
         data["models"].append(
             {
-                "name": "rag-api",
-                "model": "rag-api",
+                "name": "rag-api:latest",
+                "model": "rag-api:latest",
                 "modified_at": datetime.now(timezone.utc).isoformat(),
                 "size": 0,
                 "digest": "rag",
@@ -315,8 +315,9 @@ def create_app():
         settings = get_settings()
         ollama_url = settings.llm_base_url.rsplit("/v1", 1)[0]
 
-        # If the model is our RAG model, run the full RAG pipeline
-        if model == "rag-api":
+        # If the model is our RAG model, run the full RAG pipeline.
+        # Open WebUI may send it with or without the :latest tag.
+        if model in ("rag-api", "rag-api:latest"):
             return await _handle_rag_chat(body)
 
         # Otherwise, proxy to the real Ollama
