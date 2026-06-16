@@ -100,25 +100,25 @@ class TestConditionalLogic:
 
     def test_citation_route_retry_first_attempt(self):
         state = {
-            "answer": "The answer",  # No citations
-            "citations": [],
-            "retries": {"citation_validation": 0}
+            "answer": "The answer",  # Has citations but answer doesn't cite them
+            "citations": [{"label": "S1", "chunk_id": "c1"}],
+            "errors": []
         }
         assert citation_route(state) == "retry"
 
     def test_citation_route_invalid_after_retry(self):
         state = {
-            "answer": "The answer",  # No citations
-            "citations": [],
-            "retries": {"citation_validation": 1}
+            "answer": "The answer",  # Has citations but answer doesn't cite them
+            "citations": [{"label": "S1", "chunk_id": "c1"}],
+            "errors": [{"code": "CITATION_VALIDATION_FAILED", "message": "first failure"}]
         }
         assert citation_route(state) == "invalid"
 
-    def test_citation_route_no_retries_left(self):
+    def test_citation_route_no_citations_returns_invalid(self):
         state = {
-            "answer": "The answer",  # No citations
+            "answer": "The answer",
             "citations": [],
-            "retries": {"citation_validation": 2}
+            "errors": []
         }
         assert citation_route(state) == "invalid"
 

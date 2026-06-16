@@ -24,7 +24,9 @@ class OpenAIChatAdapter:
         api_key: str = "",
         timeout: float = 120.0,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        # Normalise: strip trailing slash and trailing /v1 so we don't
+        # double up when the caller already includes the version prefix.
+        self._base_url = base_url.rstrip("/").rstrip("/v1")
         self._model = model
         self._api_key = api_key
         self._timeout = timeout

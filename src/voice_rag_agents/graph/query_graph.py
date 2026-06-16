@@ -138,7 +138,6 @@ def generate_answer(state: VoiceRAGState) -> dict:
 
 def validate_citations(state: VoiceRAGState) -> dict:
     """Validate that answer citations map to retrieved chunks."""
-    # For the skeleton, we'll simulate validation
     answer = state.get("answer", "")
     citations = state.get("citations", [])
     
@@ -150,6 +149,7 @@ def validate_citations(state: VoiceRAGState) -> dict:
     if not citations:
         # No retrieved chunks -> route to no-evidence (not an error).
         return {}
+
     error = {
         "code": "CITATION_VALIDATION_FAILED",
         "message": "Answer contains no citation markers despite retrieved context",

@@ -91,26 +91,31 @@ def citation_route(state: VoiceRAGState) -> Literal["valid", "retry", "invalid"]
     """Route based on citation validation.
     
     Returns:
-        "valid" if citations are present and valid,
-        "retry" if retry_count < 1 (allow one retry),
-        "invalid" otherwise (no retry left or validation failed)
+        "valid" if citations are present and answer cites them,
+        "retry" if this is the first failure (no prior citation errors),
+        "invalid" otherwise (already retried once, still failing)
     """
-    # Check if citations validation passed
     citations = state.get("citations", [])
     answer = state.get("answer", "")
+    errors = state.get("errors", [])
     
-    # Simple validation: check if we have citations and answer mentions them
-    # In a real implementation, this would use the CitationValidator
-    has_citations = len(citations) > 0 and answer and "[S" in answer
-    
-    if has_citations:
+    # Valid: answer cites at least one source and we have citations
+    if citations and answer and "[S" in answer:
         return "valid"
     
-    # Check retry count
-    retries = state.get("retries", {})
-    citation_retries = retries.get("citation_validation", 0)
+    # No citations at all -> not a validation failure, just no evidence
+    if not citations:
+        return "invalid"  # routes to no_evidence_response
     
-    if citation_retries < 1:
+    # Count how many times citation validation has already failed.
+    # Each failure appends a CITATION_VALIDATION_FAILED error, so the count
+    # of such errors tells us how many times we've been through this loop.
+    citation_failures = sum(
+        1 for e in errors
+        if isinstance(e, dict) and e.get("code") == "CITATION_VALIDATION_FAILED"
+    )
+    
+    if citation_failures < 1:
         return "retry"
     else:
         return "invalid"

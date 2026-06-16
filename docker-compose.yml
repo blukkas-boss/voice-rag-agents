@@ -60,10 +60,14 @@ services:
     image: ghcr.io/open-webui/open-webui:main
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
+      OPENAI_API_BASE_URLS: http://voice-rag-api:8088
+      OPENAI_API_KEYS: ""
+      ENABLE_OPENAI_API: "true"
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-changeme32charssecretkey1234567890ab}
     ports:
       - "3000:8080"
     depends_on:
-      - ollama
+      - voice-rag-api
     volumes:
       - open_webui_data:/app/backend/data
     restart: unless-stopped
