@@ -21,3 +21,5 @@ data/
 run_artifacts/
 artifacts/
 *.log
+.ingest_state.json
+*.bak
