@@ -1,6 +1,6 @@
 # Extending voice_rag_agents
 
-The system is built around **frozen interfaces** (Wave 1). To add a provider,
+The system is built around **frozen provider interfaces**. To add a provider,
 implement the interface and register it in the provider factory — no graph
 changes needed.
 
@@ -38,8 +38,8 @@ with a parse function. Keep parsing inside the loader (graph nodes stay clean).
 ## Interface freeze policy
 
 Changing a frozen interface requires: an impact note, a backward-compat plan,
-and updated tests (see `docs/build_plan.md`). Prefer adding new optional methods
-over changing existing signatures.
+and updated tests. Prefer adding new optional methods over changing existing
+signatures.
 
 ## Guardrails (enforced at review)
 

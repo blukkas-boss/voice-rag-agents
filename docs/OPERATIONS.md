@@ -25,7 +25,7 @@ that maps profile → provider. Graph nodes never instantiate providers directly
 - `GET  /health` — service + provider summary
 - `POST /ingest` — `{documents:[{text, source_file}], path?}`
 - `POST /query`  — `{question?, audio_path?, top_k?, filters?}`
-- `POST /eval/run` — golden eval batch (runner lands in Wave 5)
+- `POST /eval/run` — golden eval batch
 
 ## Observability
 
@@ -40,8 +40,8 @@ top-k ids/scores, citations, warnings/errors, final status). Artifacts go to
 make test               # unit + graph (no services)
 make security-test      # path traversal, secret redaction, injection
 make integration-test   # Milvus-backed (Docker required)
-make eval               # RAG golden eval (Wave 5)
-make performance-smoke  # latency smoke (Wave 5)
+make eval               # RAG golden eval
+make performance-smoke  # latency smoke
 make lint               # ruff
 ```
 

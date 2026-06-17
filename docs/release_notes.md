@@ -1,4 +1,4 @@
-# Release Notes — voice_rag_agents (Release Candidate)
+# Release Notes — voice_rag_agents v0.1.0
 
 Voice-to-answer Retrieval-Augmented Generation, local-first and modular, built on
 LangGraph behind frozen provider interfaces. Runs fully in **mock mode** with no
@@ -69,9 +69,9 @@ The 1 skip is the Milvus adapter test (pymilvus/Docker absent).
   corpus, so unanswerable golden cases still surface citations in mock mode. Real
   no-evidence behavior is exercised by graph test GT-005 (empty retrieval).
 
-## Provenance
+## Testing
 
-Built across 5 waves; see `docs/build_plan.md` delegation log. Waves 0, 3, 4, 5
-built directly in the oversight session; waves 1–2 via sub-agents. Reason for
-direct builds is recorded honestly in the log and `docs/wave5_feedback_log.md`
-(free-tier model rate limits / local context limits during the build window).
+164 unit and graph tests pass with no external services (`make test`). RAG
+quality, security, and performance suites run via `make eval`,
+`make security-test`, and `make performance-smoke`. Integration tests are gated
+behind Docker-backed services and skipped by default.
